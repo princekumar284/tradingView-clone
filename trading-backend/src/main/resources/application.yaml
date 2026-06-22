@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: trading-backend
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/trading
+    username: dev
+    password: dev
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  flyway:
+    enabled: false
+
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration-ms: 3600000
+    refresh-expiration-ms: 604800000
+
+  finnhub:
+    api-key: ${FINNHUB_API_KEY}
+    base-url: https://finnhub.io/api/v1
+
+  binance:
+    base-url: https://api.binance.com/api/v3
+    ws-url: wss://data-stream.binance.vision
+
+  alpha-vantage:
+    api-key: ${ALPHA_VANTAGE_API_KEY}
+    base-url: https://www.alphavantage.co

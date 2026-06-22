@@ -1,0 +1,29 @@
+# Environment variables - NEVER commit these
+.env
+*.env
+.env.local
+.env.production
+
+# Maven build output
+trading-backend/target/
+
+# Node modules
+trading-frontend/node_modules/
+trading-frontend/dist/
+trading-frontend/.vite/
+
+# Logs
+*.log
+logs/
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+
+# The lightweight-charts is a separate library repo, not our code
+lightweight-charts/
+
+# OS files
+.DS_Store
+Thumbs.db
