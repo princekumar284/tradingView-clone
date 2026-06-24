@@ -1,11 +1,6 @@
-import axios from 'axios';
+import axiosInstance from './axiosInstance';
 
-const BASE_URL = 'http://localhost:8080/api';
-
-export const getAllSymbols = async (accessToken) => {
-    const response = await axios.get(`${BASE_URL}/symbols`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        withCredentials: true
-    });
+export const getAllSymbols = async () => {
+    const response = await axiosInstance.get('/symbols');
     return response.data;
 };
