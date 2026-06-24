@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createChart, CandlestickSeries } from 'lightweight-charts';
+import { createChart, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import { useAuth } from '../context/AuthContext';
@@ -20,6 +20,7 @@ export default function ChartPage() {
     const chartContainerRef = useRef(null);
     const chartRef = useRef(null);
     const seriesRef = useRef(null);
+    const volumeSeriesRef = useRef(null);
     const stompClientRef = useRef(null);
     const requestIdRef = useRef(0);
 
@@ -72,8 +73,17 @@ export default function ChartPage() {
             wickDownColor: '#ef5350',
         });
 
+        const volumeSeries = chart.addSeries(HistogramSeries, {
+            priceFormat: { type: 'volume' },
+            priceScaleId: 'volume',
+        });
+        chart.priceScale('volume').applyOptions({
+            scaleMargins: { top: 0.8, bottom: 0 },
+        });
+
         chartRef.current = chart;
         seriesRef.current = series;
+        volumeSeriesRef.current = volumeSeries;
 
         const handleResize = () => {
             chart.applyOptions({ width: chartContainerRef.current.clientWidth });
@@ -107,10 +117,18 @@ export default function ChartPage() {
                         high: parseFloat(c.high),
                         low: parseFloat(c.low),
                         close: parseFloat(c.close),
+                        volume: parseFloat(c.volume),
                     }))
                     .sort((a, b) => a.time - b.time);
 
+                const volumeData = formatted.map(c => ({
+                    time: c.time,
+                    value: c.volume,
+                    color: c.close >= c.open ? '#26a69a80' : '#ef535080',
+                }));
+
                 seriesRef.current.setData(formatted);
+                volumeSeriesRef.current.setData(volumeData);
                 chartRef.current.timeScale().fitContent();
                 setError('');
             } catch (err) {
@@ -122,18 +140,39 @@ export default function ChartPage() {
         fetchCandles();
     }, [ticker, interval, accessToken]);
 
-    // WebSocket for live price (crypto only)
+    // WebSocket for live price + live candle (crypto only)
     useEffect(() => {
         if (!CRYPTO_SYMBOLS.includes(ticker.toUpperCase())) return;
+
+        const symbol = ticker.toUpperCase();
 
         const client = new Client({
             webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
             onConnect: () => {
-                client.subscribe(`/topic/price/${ticker.toUpperCase()}`, (message) => {
+                client.subscribe(`/topic/price/${symbol}`, (message) => {
                     const data = JSON.parse(message.body);
                     setLivePrice(parseFloat(data.price));
                     setPriceChange(parseFloat(data.change));
                     setPriceChangePercent(parseFloat(data.changePercent));
+                });
+
+                client.subscribe(`/topic/candle/${symbol}/${interval}`, (message) => {
+                    const data = JSON.parse(message.body);
+                    if (!seriesRef.current || !volumeSeriesRef.current) return;
+                    const open = parseFloat(data.open);
+                    const close = parseFloat(data.close);
+                    seriesRef.current.update({
+                        time: data.timestamp,
+                        open,
+                        high: parseFloat(data.high),
+                        low: parseFloat(data.low),
+                        close,
+                    });
+                    volumeSeriesRef.current.update({
+                        time: data.timestamp,
+                        value: parseFloat(data.volume),
+                        color: close >= open ? '#26a69a80' : '#ef535080',
+                    });
                 });
             },
             reconnectDelay: 5000,
@@ -145,7 +184,7 @@ export default function ChartPage() {
         return () => {
             client.deactivate();
         };
-    }, [ticker]);
+    }, [ticker, interval]);
 
     const handleSearch = (e) => {
         e.preventDefault();
