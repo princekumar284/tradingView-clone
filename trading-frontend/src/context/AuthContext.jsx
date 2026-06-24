@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { refreshToken, logout as logoutApi } from '../api/authApi';
+import { setAuthToken } from '../api/axiosInstance';
 
 const AuthContext = createContext(null);
 
@@ -9,17 +10,27 @@ export function AuthProvider({ children }) {
 
     useEffect(() => {
         refreshToken()
-            .then(data => setAccessToken(data.accessToken))
-            .catch(() => setAccessToken(null))
+            .then(data => {
+                setAuthToken(data.accessToken);
+                setAccessToken(data.accessToken);
+            })
+            .catch(() => {
+                setAuthToken(null);
+                setAccessToken(null);
+            })
             .finally(() => setLoading(false));
     }, []);
 
-    const login = (token) => setAccessToken(token);
+    const login = (token) => {
+        setAuthToken(token);
+        setAccessToken(token);
+    };
 
     const logout = async () => {
         try {
             await logoutApi();
         } catch (e) {}
+        setAuthToken(null);
         setAccessToken(null);
     };
 

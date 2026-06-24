@@ -33,11 +33,19 @@ public class MarketDataService {
     @Value("${app.binance.ws-url}")
     private String binanceWsUrl;
 
+    @Value("${app.finnhub.ws-url}")
+    private String finnhubWsUrl;
+
+    @Value("${app.finnhub.api-key}")
+    private String finnhubApiKey;
+
     private static final List<String> CRYPTO_SYMBOLS = List.of(
             "btcusdt", "ethusdt", "bnbusdt", "solusdt", "xrpusdt",
             "adausdt", "dogeusdt", "maticusdt", "dotusdt", "linkusdt",
             "avaxusdt", "uniusdt", "ltcusdt", "atomusdt", "xlmusdt"
     );
+
+    private static final List<String> STOCK_SYMBOLS = List.of("AAPL", "GOOGL", "TSLA", "MSFT", "AMZN");
 
     private static final List<String> KLINE_INTERVALS = List.of("1h", "4h", "1d", "1w");
 
@@ -51,6 +59,7 @@ public class MarketDataService {
     @PostConstruct
     public void init() {
         connectToBinance();
+        connectToFinnhub();
     }
 
     private void connectToBinance() {
@@ -85,6 +94,91 @@ public class MarketDataService {
         log.info("Reconnecting to Binance WebSocket in 5 seconds...");
         Executors.newSingleThreadScheduledExecutor()
                 .schedule(this::connectToBinance, 5, TimeUnit.SECONDS);
+    }
+
+    private void connectToFinnhub() {
+        try {
+            String url = finnhubWsUrl + "?token=" + finnhubApiKey;
+            HttpClient client = HttpClient.newHttpClient();
+            WebSocket webSocket = client.newWebSocketBuilder()
+                    .buildAsync(URI.create(url), new FinnhubWebSocketListener())
+                    .join();
+
+            for (String symbol : STOCK_SYMBOLS) {
+                String msg = String.format("{\"type\":\"subscribe\",\"symbol\":\"%s\"}", symbol);
+                webSocket.sendText(msg, true).join();
+                log.info("Subscribed to Finnhub symbol: {}", symbol);
+            }
+
+            log.info("Connected to Finnhub WebSocket");
+        } catch (Exception e) {
+            log.error("Failed to connect to Finnhub WebSocket: {}", e.getMessage());
+            scheduleFinnhubReconnect();
+        }
+    }
+
+    private void scheduleFinnhubReconnect() {
+        log.info("Reconnecting to Finnhub WebSocket in 5 seconds...");
+        Executors.newSingleThreadScheduledExecutor()
+                .schedule(this::connectToFinnhub, 5, TimeUnit.SECONDS);
+    }
+
+    private class FinnhubWebSocketListener implements WebSocket.Listener {
+
+        private final StringBuilder buffer = new StringBuilder();
+
+        @Override
+        public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+            buffer.append(data);
+            if (last) {
+                handleFinnhubMessage(buffer.toString());
+                buffer.setLength(0);
+            }
+            webSocket.request(1);
+            return null;
+        }
+
+        @Override
+        public void onError(WebSocket webSocket, Throwable error) {
+            log.error("Finnhub WebSocket error: {}", error.getMessage());
+            scheduleFinnhubReconnect();
+        }
+
+        @Override
+        public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
+            log.warn("Finnhub WebSocket closed: {} {}", statusCode, reason);
+            scheduleFinnhubReconnect();
+            return null;
+        }
+    }
+
+    private void handleFinnhubMessage(String message) {
+        try {
+            JsonNode root = objectMapper.readTree(message);
+            String type = root.path("type").asText();
+
+            if (!"trade".equals(type)) return;
+
+            JsonNode dataArray = root.path("data");
+            if (!dataArray.isArray() || dataArray.isEmpty()) return;
+
+            JsonNode trade = dataArray.get(dataArray.size() - 1);
+            String symbol = trade.path("s").asText().toUpperCase();
+            BigDecimal price = new BigDecimal(trade.path("p").asText());
+
+            PriceResponse priceResponse = PriceResponse.builder()
+                    .ticker(symbol)
+                    .price(price)
+                    .change(BigDecimal.ZERO)
+                    .changePercent(BigDecimal.ZERO)
+                    .timestamp(Instant.now())
+                    .build();
+
+            messagingTemplate.convertAndSend("/topic/price/" + symbol, priceResponse);
+
+        } catch (Exception e) {
+            log.error("Error processing Finnhub message: {}", e.getMessage());
+        }
     }
 
     private class BinanceWebSocketListener implements WebSocket.Listener {

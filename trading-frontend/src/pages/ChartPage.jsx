@@ -42,7 +42,7 @@ export default function ChartPage() {
     // Fetch all symbols on mount for dropdown
     useEffect(() => {
         if (!accessToken) return;
-        getAllSymbols(accessToken)
+        getAllSymbols()
             .then(data => setSymbols(data))
             .catch(() => {});
     }, [accessToken]);
@@ -106,7 +106,7 @@ export default function ChartPage() {
 
         const fetchCandles = async () => {
             try {
-                const candles = await getCandles(ticker, interval, accessToken);
+                const candles = await getCandles(ticker, interval);
 
                 if (currentId !== requestIdRef.current) return;
 
@@ -140,10 +140,8 @@ export default function ChartPage() {
         fetchCandles();
     }, [ticker, interval, accessToken]);
 
-    // WebSocket for live price + live candle (crypto only)
+    // WebSocket for live price (all symbols) + live candle (crypto only)
     useEffect(() => {
-        if (!CRYPTO_SYMBOLS.includes(ticker.toUpperCase())) return;
-
         const symbol = ticker.toUpperCase();
 
         const client = new Client({
@@ -263,14 +261,14 @@ export default function ChartPage() {
                 {livePrice ? (
                     <>
                         <span style={styles.price}>${livePrice.toLocaleString()}</span>
-                        <span style={{ ...styles.change, color: isPositive ? '#26a69a' : '#ef5350' }}>
-                            {isPositive ? '▲' : '▼'} {Math.abs(priceChange).toFixed(2)} ({Math.abs(priceChangePercent).toFixed(2)}%)
-                        </span>
+                        {isCrypto && (
+                            <span style={{ ...styles.change, color: isPositive ? '#26a69a' : '#ef5350' }}>
+                                {isPositive ? '▲' : '▼'} {Math.abs(priceChange).toFixed(2)} ({Math.abs(priceChangePercent).toFixed(2)}%)
+                            </span>
+                        )}
                     </>
                 ) : (
-                    <span style={styles.noPrice}>
-                        {CRYPTO_SYMBOLS.includes(ticker) ? 'Connecting...' : 'Live price not available for stocks'}
-                    </span>
+                    <span style={styles.noPrice}>Connecting...</span>
                 )}
             </div>
 
