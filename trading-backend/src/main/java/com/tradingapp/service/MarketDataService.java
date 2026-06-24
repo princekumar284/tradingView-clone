@@ -32,7 +32,9 @@ public class MarketDataService {
     private String binanceWsUrl;
 
     private static final List<String> CRYPTO_SYMBOLS = List.of(
-            "btcusdt", "ethusdt", "bnbusdt", "solusdt", "xrpusdt"
+            "btcusdt", "ethusdt", "bnbusdt", "solusdt", "xrpusdt",
+            "adausdt", "dogeusdt", "maticusdt", "dotusdt", "linkusdt",
+            "avaxusdt", "uniusdt", "ltcusdt", "atomusdt", "xlmusdt"
     );
 
     @PostConstruct

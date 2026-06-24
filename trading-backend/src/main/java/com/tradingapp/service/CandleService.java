@@ -179,6 +179,7 @@ public class CandleService {
             case "15min" -> "15m";
             case "30min" -> "30m";
             case "1H" -> "1h";
+            case "4H" -> "4h";
             case "1D" -> "1d";
             case "1W" -> "1w";
             default -> "1d";

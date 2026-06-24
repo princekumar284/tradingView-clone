@@ -35,7 +35,9 @@ public class DataSeeder {
     );
 
     private static final List<String> CRYPTO_TICKERS = List.of(
-            "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"
+            "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+            "ADAUSDT", "DOGEUSDT", "MATICUSDT", "DOTUSDT", "LINKUSDT",
+            "AVAXUSDT", "UNIUSDT", "LTCUSDT", "ATOMUSDT", "XLMUSDT"
     );
 
     @PostConstruct
