@@ -29,6 +29,7 @@ public class MarketDataService {
 
     private final SimpMessagingTemplate messagingTemplate;
     private final ObjectMapper objectMapper;
+    private final AlertCheckerService alertCheckerService;
 
     @Value("${app.binance.ws-url}")
     private String binanceWsUrl;
@@ -175,6 +176,7 @@ public class MarketDataService {
                     .build();
 
             messagingTemplate.convertAndSend("/topic/price/" + symbol, priceResponse);
+            alertCheckerService.checkAlerts(symbol, price);
 
         } catch (Exception e) {
             log.error("Error processing Finnhub message: {}", e.getMessage());
@@ -244,6 +246,7 @@ public class MarketDataService {
                 .build();
 
         messagingTemplate.convertAndSend("/topic/price/" + symbol, priceResponse);
+        alertCheckerService.checkAlerts(symbol, price);
     }
 
     private void handleKlineMessage(JsonNode data) {
