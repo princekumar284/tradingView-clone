@@ -3,6 +3,7 @@ import { useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ChartPage from './pages/ChartPage';
+import PortfolioPage from './pages/PortfolioPage';
 
 function ProtectedRoute({ children }) {
     const { accessToken, loading } = useAuth();
@@ -30,6 +31,11 @@ function App() {
                 <Route path="/chart" element={
                     <ProtectedRoute>
                         <ChartPage />
+                    </ProtectedRoute>
+                } />
+                <Route path="/portfolio" element={
+                    <ProtectedRoute>
+                        <PortfolioPage />
                     </ProtectedRoute>
                 } />
                 <Route path="*" element={<Navigate to="/" />} />

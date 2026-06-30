@@ -56,9 +56,9 @@ lightweight-charts/
 Thumbs.db
 
 # Accidentally committed root-level files (from friend's local setup)
-bin/
-src/
-pom.xml
-mvnw
-mvnw.cmd
-.mvn/
+/bin/
+/src/
+/pom.xml
+/mvnw
+/mvnw.cmd
+/.mvn/

@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
@@ -36,9 +37,14 @@ public class User {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    @Column(nullable = false, precision = 18, scale = 2,
+            columnDefinition = "numeric(18,2) default 100000.00")
+    private BigDecimal balance;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+        if (balance == null) balance = new BigDecimal("100000.00");
     }
 
     public enum Role {

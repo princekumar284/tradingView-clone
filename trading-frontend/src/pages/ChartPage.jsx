@@ -12,6 +12,9 @@ import { getAllSymbols } from '../api/symbolApi';
 import { getWatchlist, addToWatchlist, removeFromWatchlist } from '../api/watchlistApi';
 import { getAlerts, createAlert, cancelAlert, deleteAlert } from '../api/alertApi';
 import { getMyProfile } from '../api/userApi';
+import { buyStock, sellStock } from '../api/tradeApi';
+import { getPortfolio } from '../api/portfolioApi';
+import NewsFeed from '../components/NewsFeed';
 
 const CRYPTO_SYMBOLS = [
     'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
@@ -93,6 +96,13 @@ export default function ChartPage() {
     const [watchlistPrices, setWatchlistPrices] = useState({});
     const [watchlistError, setWatchlistError] = useState('');
 
+    // Paper trading
+    const [balance, setBalance] = useState(null);
+    const [showTradeModal, setShowTradeModal] = useState(false);
+    const [tradeType, setTradeType] = useState('BUY');
+    const [tradeQuantity, setTradeQuantity] = useState('');
+    const [tradeError, setTradeError] = useState('');
+
     // Alerts
     const [alerts, setAlerts] = useState([]);
     const [userId, setUserId] = useState(null);
@@ -102,6 +112,7 @@ export default function ChartPage() {
     const [alertError, setAlertError] = useState('');
     const [alertNotification, setAlertNotification] = useState(null);
     const [showAlerts, setShowAlerts] = useState(false);
+    const [showNews, setShowNews] = useState(false);
 
     const isCrypto = CRYPTO_SYMBOLS.includes(ticker.toUpperCase());
     const INTERVALS = isCrypto ? ['1H', '4H', '1D', '1W'] : ['1D'];
@@ -187,6 +198,13 @@ export default function ChartPage() {
     }, [accessToken]);
 
     useEffect(() => { fetchAlerts(); }, [fetchAlerts]);
+
+    const fetchBalance = useCallback(() => {
+        if (!accessToken) return;
+        getPortfolio().then(p => setBalance(p.balance)).catch(() => {});
+    }, [accessToken]);
+
+    useEffect(() => { fetchBalance(); }, [fetchBalance]);
 
     // ─── WebSocket: watchlist live prices ────────────────────────────────────
 
@@ -718,6 +736,32 @@ export default function ChartPage() {
         )
         .slice(0, 30);
 
+    // ─── Trade handlers ───────────────────────────────────────────────────────
+
+    const openTradeModal = (type) => {
+        setTradeType(type);
+        setTradeQuantity('');
+        setTradeError('');
+        setShowTradeModal(true);
+    };
+
+    const handleTrade = async (e) => {
+        e.preventDefault();
+        setTradeError('');
+        const qty = parseFloat(tradeQuantity);
+        if (!qty || qty <= 0) { setTradeError('Enter a valid quantity'); return; }
+        if (!livePrice) { setTradeError('Live price not available yet'); return; }
+        try {
+            const res = tradeType === 'BUY'
+                ? await buyStock(ticker, qty, livePrice)
+                : await sellStock(ticker, qty, livePrice);
+            setBalance(res.balanceAfter);
+            setShowTradeModal(false);
+        } catch (err) {
+            setTradeError(err.response?.data?.message || 'Trade failed');
+        }
+    };
+
     const handleLogout = async () => { await logout(); navigate('/login'); };
     const isPositive = priceChange >= 0;
     const selectedDrawing = drawings.find(d => d.id === selectedId);
@@ -762,6 +806,55 @@ export default function ChartPage() {
                             <div style={styles.modalActions}>
                                 <button type="button" onClick={() => setShowAlertModal(false)} style={styles.modalCancel}>Cancel</button>
                                 <button type="submit" style={styles.modalSubmit}>Create Alert</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Trade modal */}
+            {showTradeModal && (
+                <div style={styles.modalOverlay} onClick={() => setShowTradeModal(false)}>
+                    <div style={styles.modal} onClick={e => e.stopPropagation()}>
+                        <h3 style={{ ...styles.modalTitle, color: tradeType === 'BUY' ? '#26a69a' : '#ef5350' }}>
+                            {tradeType} {ticker}
+                        </h3>
+                        <form onSubmit={handleTrade} style={styles.modalForm}>
+                            <div style={styles.modalField}>
+                                <label style={styles.modalLabel}>Current Price</label>
+                                <div style={{ ...styles.modalInput, color: '#d1d4dc', pointerEvents: 'none' }}>
+                                    ${livePrice ? livePrice.toLocaleString() : '—'}
+                                </div>
+                            </div>
+                            <div style={styles.modalField}>
+                                <label style={styles.modalLabel}>Quantity</label>
+                                <input
+                                    type="number" step="any" min="0"
+                                    value={tradeQuantity}
+                                    onChange={e => setTradeQuantity(e.target.value)}
+                                    placeholder="e.g. 0.01" required style={styles.modalInput}
+                                    autoFocus
+                                />
+                            </div>
+                            {tradeQuantity && livePrice && (
+                                <div style={styles.modalField}>
+                                    <label style={styles.modalLabel}>Total Cost</label>
+                                    <div style={{ color: '#d1d4dc', fontSize: '0.95rem', padding: '0.3rem 0' }}>
+                                        ${(parseFloat(tradeQuantity || 0) * livePrice).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </div>
+                                </div>
+                            )}
+                            {tradeType === 'BUY' && balance !== null && (
+                                <div style={{ color: '#787b86', fontSize: '0.8rem' }}>
+                                    Available: ${parseFloat(balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </div>
+                            )}
+                            {tradeError && <p style={styles.modalError}>{tradeError}</p>}
+                            <div style={styles.modalActions}>
+                                <button type="button" onClick={() => setShowTradeModal(false)} style={styles.modalCancel}>Cancel</button>
+                                <button type="submit" style={tradeType === 'BUY' ? styles.buyModalBtn : styles.sellModalBtn}>
+                                    {tradeType}
+                                </button>
                             </div>
                         </form>
                     </div>
@@ -869,6 +962,13 @@ export default function ChartPage() {
                     >
                         Alerts {alerts.filter(a => a.status === 'ACTIVE').length > 0 && `(${alerts.filter(a => a.status === 'ACTIVE').length})`}
                     </button>
+                    <button
+                        onClick={() => setShowNews(v => !v)}
+                        style={{ ...styles.headerBtn, ...(showNews ? styles.headerBtnActive : {}) }}
+                    >
+                        📰 News
+                    </button>
+                    <button onClick={() => navigate('/portfolio')} style={styles.headerBtn}>Portfolio</button>
                     <button onClick={handleLogout} style={styles.logoutButton}>Logout</button>
                 </div>
 
@@ -887,6 +987,14 @@ export default function ChartPage() {
                             )}
                         </>
                     ) : <span style={styles.noPrice}>Connecting...</span>}
+
+                    <div style={styles.tradeBar}>
+                        <span style={styles.balanceDisplay}>
+                            ${balance !== null ? parseFloat(balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '...'}
+                        </span>
+                        <button onClick={() => openTradeModal('BUY')} style={styles.buyBtn}>Buy</button>
+                        <button onClick={() => openTradeModal('SELL')} style={styles.sellBtn}>Sell</button>
+                    </div>
                 </div>
 
                 {/* Interval + Indicators bar */}
@@ -1129,6 +1237,10 @@ export default function ChartPage() {
                 </div>
 
             </div>
+
+            {/* News right sidebar */}
+            {showNews && <NewsFeed ticker={ticker} />}
+
         </div>
     );
 }
@@ -1136,7 +1248,7 @@ export default function ChartPage() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = {
-    page: { backgroundColor: '#131722', minHeight: '100vh', display: 'flex', flexDirection: 'row' },
+    page: { backgroundColor: '#131722', height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'row' },
 
     alertBanner: {
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000,
@@ -1239,8 +1351,14 @@ const styles = {
     },
     headerBtnActive: { color: '#f5c518', borderColor: '#f5c518' },
     logoutButton: { backgroundColor: 'transparent', color: '#787b86', border: '1px solid #363a45', borderRadius: '4px', padding: '0.45rem 0.75rem', cursor: 'pointer', fontSize: '0.82rem' },
+    balanceDisplay: { color: '#26a69a', fontSize: '0.82rem', fontWeight: 'bold', whiteSpace: 'nowrap', padding: '0.45rem 0.75rem', border: '1px solid #26a69a40', borderRadius: '4px', backgroundColor: '#26a69a10' },
+    buyBtn: { backgroundColor: '#26a69a', color: '#fff', border: 'none', borderRadius: '4px', padding: '0.45rem 0.9rem', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 'bold', whiteSpace: 'nowrap' },
+    sellBtn: { backgroundColor: '#ef5350', color: '#fff', border: 'none', borderRadius: '4px', padding: '0.45rem 0.9rem', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 'bold', whiteSpace: 'nowrap' },
+    buyModalBtn: { flex: 1, backgroundColor: '#26a69a', border: 'none', borderRadius: '4px', padding: '0.6rem', color: '#fff', cursor: 'pointer', fontWeight: 'bold' },
+    sellModalBtn: { flex: 1, backgroundColor: '#ef5350', border: 'none', borderRadius: '4px', padding: '0.6rem', color: '#fff', cursor: 'pointer', fontWeight: 'bold' },
 
-    priceBar: { display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem 1.5rem', backgroundColor: '#1e222d', borderBottom: '1px solid #2a2e39' },
+    priceBar: { display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.6rem 1.5rem', backgroundColor: '#1e222d', borderBottom: '1px solid #2a2e39' },
+    tradeBar: { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.6rem' },
     tickerName: { color: '#d1d4dc', fontWeight: 'bold', fontSize: '1.1rem' },
     price: { color: '#d1d4dc', fontSize: '1.1rem' },
     change: { fontSize: '0.95rem' },
