@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createChart, CandlestickSeries, HistogramSeries, LineSeries } from 'lightweight-charts';
+import { createChart, CrosshairMode, HistogramSeries, LineSeries } from 'lightweight-charts';
 import { createPrimitive } from '../utils/drawingTools';
 import { CrosshairHighlightPrimitive } from '../utils/crosshairHighlight';
-import { calcSMA, calcEMA, calcBollingerBands, toLineData } from '../utils/indicators';
+import { calcSMA, calcEMA, calcBollingerBands } from '../utils/indicators';
+import { RoundedCandleSeriesView } from '../utils/roundedCandleSeries';
+import { BollingerBandsPrimitive } from '../utils/bollingerBandsPrimitive';
 import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import { useAuth } from '../context/AuthContext';
@@ -59,6 +61,8 @@ export default function ChartPage() {
 
     // Indicator series refs (keyed by indicator id)
     const indicatorSeriesRef = useRef({});
+    // Dashed live-price line (updated on each WebSocket price tick)
+    const priceLineRef = useRef(null);
     // Cache last candle data for recalculating indicators when toggled
     const lastCandleDataRef = useRef([]);
 
@@ -306,7 +310,13 @@ export default function ChartPage() {
 
             if (!isActive) {
                 if (existing) {
-                    chart.removeSeries(existing.series);
+                    if (existing.primitive) {
+                        series.detachPrimitive(existing.primitive);
+                    } else {
+                        chart.removeSeries(existing.series);
+                        if (existing.upper) chart.removeSeries(existing.upper);
+                        if (existing.lower) chart.removeSeries(existing.lower);
+                    }
                     delete indicatorSeriesRef.current[id];
                 }
                 return;
@@ -315,7 +325,8 @@ export default function ChartPage() {
             // Compute data
             let data = [];
             if (id === 'sma20') {
-                data = toLineData(times, calcSMA(closes, 20));
+                const values = calcSMA(closes, 20);
+                data = times.map((t, i) => values[i] !== undefined ? { time: t, value: values[i] } : null).filter(Boolean);
                 if (!existing) {
                     const s = chart.addSeries(LineSeries, { color, lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
                     indicatorSeriesRef.current[id] = { series: s };
@@ -323,7 +334,8 @@ export default function ChartPage() {
                 } else { existing.series.setData(data); }
 
             } else if (id === 'sma50') {
-                data = toLineData(times, calcSMA(closes, 50));
+                const values = calcSMA(closes, 50);
+                data = times.map((t, i) => values[i] !== undefined ? { time: t, value: values[i] } : null).filter(Boolean);
                 if (!existing) {
                     const s = chart.addSeries(LineSeries, { color, lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
                     indicatorSeriesRef.current[id] = { series: s };
@@ -331,29 +343,29 @@ export default function ChartPage() {
                 } else { existing.series.setData(data); }
 
             } else if (id === 'ema9') {
-                data = toLineData(times, calcEMA(closes, 9));
+                const values = calcEMA(closes, 9);
+                data = times.map((t, i) => values[i] !== undefined ? { time: t, value: values[i] } : null).filter(Boolean);
                 if (!existing) {
-                    const s = chart.addSeries(LineSeries, { color, lineWidth: 1.5, lineStyle: 2 /* dashed */, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+                    const s = chart.addSeries(LineSeries, { color, lineWidth: 1.5, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
                     indicatorSeriesRef.current[id] = { series: s };
                     s.setData(data);
                 } else { existing.series.setData(data); }
 
             } else if (id === 'bb') {
-                const bands = calcBollingerBands(closes, 20, 2);
-                const upData = toLineData(times, bands.map(b => b?.upper));
-                const midData = toLineData(times, bands.map(b => b?.mid));
-                const loData = toLineData(times, bands.map(b => b?.lower));
+                // BB uses a filled-area primitive (ported from bands-indicator plugin)
+                // instead of 3 separate LineSeries — gives proper fill between upper/lower bands
+                const rawBands = calcBollingerBands(closes, 20, 2);
+                const bandsData = rawBands
+                    .map((b, i) => b ? { time: times[i], upper: b.upper, mid: b.mid, lower: b.lower } : null)
+                    .filter(Boolean);
 
                 if (!existing) {
-                    const upperS = chart.addSeries(LineSeries, { color, lineWidth: 1, lineStyle: 1 /* dotted */, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-                    const midS   = chart.addSeries(LineSeries, { color, lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-                    const lowerS = chart.addSeries(LineSeries, { color, lineWidth: 1, lineStyle: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-                    upperS.setData(upData); midS.setData(midData); lowerS.setData(loData);
-                    indicatorSeriesRef.current[id] = { series: midS, upper: upperS, lower: lowerS };
+                    const bbPrim = new BollingerBandsPrimitive();
+                    series.attachPrimitive(bbPrim);
+                    bbPrim.setData(bandsData);
+                    indicatorSeriesRef.current[id] = { primitive: bbPrim };
                 } else {
-                    existing.series.setData(midData);
-                    existing.upper.setData(upData);
-                    existing.lower.setData(loData);
+                    existing.primitive.setData(bandsData);
                 }
             }
         });
@@ -377,15 +389,13 @@ export default function ChartPage() {
             height: 420,
             layout: { background: { type: 'solid', color: '#1e222d' }, textColor: '#d1d4dc' },
             grid: { vertLines: { color: '#2a2e39' }, horzLines: { color: '#2a2e39' } },
-            crosshair: { mode: 1 },
+            crosshair: { mode: CrosshairMode.MagnetOHLC },
             rightPriceScale: { borderColor: '#363a45' },
             timeScale: { borderColor: '#363a45', timeVisible: true },
         });
 
-        const series = chart.addSeries(CandlestickSeries, {
-            upColor: '#26a69a', downColor: '#ef5350',
-            borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350',
-        });
+        // Rounded candles — ported from plugin-examples/rounded-candles-series
+        const series = chart.addCustomSeries(new RoundedCandleSeriesView(), {});
 
         const volumeSeries = chart.addSeries(HistogramSeries, {
             priceFormat: { type: 'volume' }, priceScaleId: 'volume',
@@ -395,6 +405,16 @@ export default function ChartPage() {
         chartRef.current = chart;
         seriesRef.current = series;
         volumeSeriesRef.current = volumeSeries;
+
+        // ── Live price line — dashed, updates on each WebSocket tick ──────────
+        priceLineRef.current = series.createPriceLine({
+            price: 0,
+            color: '#2962ff',
+            lineWidth: 1,
+            lineStyle: 2, // LineStyle.Dashed
+            axisLabelVisible: true,
+            title: '',
+        });
 
         // ── Crosshair bar highlight (adapted from highlight-bar-crosshair plugin) ──
         const crosshairHighlight = new CrosshairHighlightPrimitive('rgba(255,255,255,0.07)');
@@ -655,6 +675,7 @@ export default function ChartPage() {
             chartEl.removeEventListener('mousedown', onMouseDown, true);
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp);
+            priceLineRef.current = null;
             chart.remove();
         };
     }, []);
@@ -698,9 +719,12 @@ export default function ChartPage() {
             onConnect: () => {
                 client.subscribe(`/topic/price/${symbol}`, (msg) => {
                     const data = JSON.parse(msg.body);
-                    setLivePrice(parseFloat(data.price));
+                    const price = parseFloat(data.price);
+                    setLivePrice(price);
                     setPriceChange(parseFloat(data.change));
                     setPriceChangePercent(parseFloat(data.changePercent));
+                    // Update dashed live-price line
+                    priceLineRef.current?.applyOptions({ price });
                 });
                 client.subscribe(`/topic/candle/${symbol}/${interval}`, (msg) => {
                     const data = JSON.parse(msg.body);
